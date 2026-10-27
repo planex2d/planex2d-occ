@@ -1,0 +1,214 @@
+# SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# planex2d-occ's releases: every day it looks for a new real netgen-mesher release on PyPI (nightlies such as
+# 6.2.2608.post63.dev0 are pre-releases and left out) and, when the latest planex2d-occ lacks a module for it, builds
+# the module for every platform and Python, tests the wheels with the current planex2d from the index (its sdist's
+# tests), publishes them and makes the tag and the GitHub release. Run by hand after a planex2d release with
+# rebuild=true: the whole window anew for that planex2d.
+#
+# FOR NOW EVERYTHING GOES TO TestPyPI (planex2d and planex2d-occ are read from it and released there), not to PyPI.
+#
+# Once: a trusted publisher on test.pypi.org for this repository, workflow release.yml, environment "testpypi", and the
+# environment "testpypi" in this repository's settings (no required reviewer: the releases are automatic).
+name: release
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      planex2d:
+        description: "the planex2d version to build for (empty: the newest on the index)"
+        required: false
+        default: ""
+      rebuild:
+        description: "build every module of the window anew (after a planex2d release)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # the index planex2d is read from and planex2d-occ is released to: TestPyPI until the user says otherwise
+  INDEX: https://test.pypi.org
+  INDEX_SIMPLE: https://test.pypi.org/simple/
+  WINDOW: "6"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      planex2d: ${{ steps.plan.outputs.planex2d }}
+      version: ${{ steps.plan.outputs.version }}
+      window: ${{ steps.plan.outputs.window }}
+      build: ${{ steps.plan.outputs.build }}
+      build_json: ${{ steps.plan.outputs.build_json }}
+      keep: ${{ steps.plan.outputs.keep }}
+      previous: ${{ steps.plan.outputs.previous }}
+      newest: ${{ steps.plan.outputs.newest }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install packaging
+      - id: plan
+        run: |
+          args="--window $WINDOW --index $INDEX"
+          [ -n "${{ inputs.planex2d }}" ] && args="$args --planex2d ${{ inputs.planex2d }}"
+          [ "${{ inputs.rebuild }}" = "true" ] && args="$args --rebuild"
+          python tools/plan.py $args > plan.json
+          cat plan.json
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          p = json.load(open("plan.json"))
+          print(f"planex2d={p['planex2d']}")
+          print(f"version={p['version']}")
+          print(f"previous={p['previous'] or ''}")
+          for key in ("window", "build", "keep"):
+              print(f"{key}={' '.join(p[key])}")
+          print(f"build_json={json.dumps(p['build'])}")
+          print(f"newest={p['window'][-1]}")
+          print(f"release={'true' if p['release'] else 'false'}")
+          EOF
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, macos-arm64, macos-x86_64, windows]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-14' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-arm64' && '11.0' || '10.15' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        if: matrix.os != 'linux'
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build (Linux, in the manylinux_2_28 image netgen's wheels are built for)
+        if: matrix.os == 'linux'
+        run: |
+          docker run --rm -v "$PWD":/io -w /io -e INDEX_SIMPLE quay.io/pypa/manylinux_2_28_x86_64 bash -c '
+            set -e
+            py=/opt/python/cp$(echo ${{ matrix.python }} | tr -d .)-cp$(echo ${{ matrix.python }} | tr -d .)/bin/python
+            $py -m pip install -q packaging scikit-build-core auditwheel
+            sh tools/build_wheel.sh "$py" "${{ needs.plan.outputs.planex2d }}" "${{ needs.plan.outputs.version }}" \
+              "${{ needs.plan.outputs.build }}" "${{ needs.plan.outputs.keep }}" "${{ needs.plan.outputs.previous }}" \
+              "${{ needs.plan.outputs.window }}"
+            $py -m auditwheel repair -w wheelhouse --exclude "libnglib.so" --exclude "libngcore.so" --exclude "libTK*" dist/*.whl
+          '
+      - name: Build (macOS, Windows)
+        if: matrix.os != 'linux'
+        shell: bash
+        run: |
+          python -m pip install -q packaging scikit-build-core
+          sh tools/build_wheel.sh python "${{ needs.plan.outputs.planex2d }}" "${{ needs.plan.outputs.version }}" \
+            "${{ needs.plan.outputs.build }}" "${{ needs.plan.outputs.keep }}" "${{ needs.plan.outputs.previous }}" \
+            "${{ needs.plan.outputs.window }}"
+          mkdir -p wheelhouse && cp dist/*.whl wheelhouse/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          path: wheelhouse/*.whl
+
+  test:
+    needs: [plan, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, macos-arm64, macos-x86_64, windows]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-14' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          path: wheelhouse
+      # with the optional packages; not NGSolve, which pins netgen-mesher to its own version (its tests skip)
+      - name: The current planex2d from the index, the newest netgen, this wheel, the optional packages
+        shell: bash
+        run: |
+          python -m pip install --index-url "$INDEX_SIMPLE" --extra-index-url https://pypi.org/simple/ \
+            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          python -m pip install "netgen-mesher==${{ needs.plan.outputs.newest }}" wheelhouse/*.whl pytest hypothesis \
+            numpy scipy shapely ezdxf matplotlib plotly svgelements
+          python -c "import planex as px; assert px._occ.loaded, px._occ.why; print('planex', px._planex._version, 'with OCC')"
+      - name: planex2d's tests (its sdist's)
+        shell: bash
+        run: |
+          python -m pip download --index-url "$INDEX_SIMPLE" --no-binary :all: --no-deps -d sdist \
+            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          mkdir src && tar xzf sdist/*.tar.gz -C src --strip-components=1
+          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
+
+  test-each-netgen:
+    # every module built in this run with its own netgen, on one platform and Python, without the optional packages
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        netgen: ${{ fromJSON(needs.plan.outputs.build_json) }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-3.12
+          path: wheelhouse
+      - shell: bash
+        run: |
+          python -m pip install --index-url "$INDEX_SIMPLE" --extra-index-url https://pypi.org/simple/ \
+            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          python -m pip install "netgen-mesher==${{ matrix.netgen }}" wheelhouse/*.whl pytest hypothesis
+          python -c "import planex as px; assert px._occ.loaded, px._occ.why"
+          python -m pip download --index-url "$INDEX_SIMPLE" --no-binary :all: --no-deps -d sdist \
+            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          mkdir src && tar xzf sdist/*.tar.gz -C src --strip-components=1
+          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
+
+  publish:
+    needs: [plan, test, test-each-netgen]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  release:
+    # after the upload, so that a failed upload leaves no tag
+    needs: [plan, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ needs.plan.outputs.version }}" dist/*.whl --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "planex2d-occ ${{ needs.plan.outputs.version }}" \
+            --notes "For planex2d ${{ needs.plan.outputs.planex2d }}, with modules for netgen-mesher ${{ needs.plan.outputs.window }}. On TestPyPI."

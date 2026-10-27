@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+[build-system]
+requires = ["scikit-build-core>=0.10"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "planex2d-occ"
+# the release workflow writes the version (planex2d's, then a counter: 0.2.0.1) and the dependencies (planex2d exactly,
+# netgen-mesher within the versions the wheel has a module for), tools/metadata.py
+version = "0.0.0.0"
+description = "planex2d's OpenCASCADE integration for netgen: export to netgen.occ, pads and pockets, sections and projections"
+readme = "README.md"
+authors = [{name = "Sebastian Hirnschall"}]
+keywords = ["geometry", "2D", "CAD", "OpenCASCADE", "netgen", "NGSolve", "meshing", "planex2d"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering",
+]
+requires-python = ">=3.11"
+dependencies = ["planex2d==0.0.0", "netgen-mesher>=0,<0"]
+# the modules are built from planex2d's sources: its code and what it compiles in, as planex2d
+license = "LGPL-2.1-or-later AND MPL-2.0 AND Apache-2.0 AND BSD-3-Clause AND MIT"
+# licenses/: the texts of Eigen, Taskflow and pybind11 as the build took them (tools/build_modules.py)
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/*"]
+
+[project.urls]
+Homepage = "https://planex2d.org"
+Documentation = "https://planex2d.org/docs/"
+Source = "https://github.com/planex2d/planex2d-occ"
+Issues = "https://github.com/planex2d/planex2d/issues"
+
+[tool.scikit-build]
+# the CMake project only installs the modules tools/build_modules.py built (PLANEX_OCC_STAGING) and the loader
+wheel.packages = []
