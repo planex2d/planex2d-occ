@@ -33,10 +33,13 @@ def releases(index, name):
     return versions, data["info"].get("requires_dist") or []
 
 
-def window(size):
-    """the newest real netgen-mesher releases on PyPI, oldest first"""
+def window(size, minimum=None):
+    """the newest real netgen-mesher releases on PyPI from minimum on (the oldest whose C++ API planex builds
+    against), oldest first"""
     versions, _ = releases("https://pypi.org", "netgen-mesher")
     final = sorted(Version(v) for v in versions if not Version(v).is_prerelease)
+    if minimum:
+        final = [v for v in final if v >= Version(minimum)]
     return [str(v) for v in final[-size:]]
 
 
@@ -74,6 +77,7 @@ def occ_version(core, counter):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--window", type=int, default=6, help="how many netgen releases a wheel has modules for")
+    ap.add_argument("--min-netgen", help="the oldest netgen release to build for")
     ap.add_argument("--index", default="https://pypi.org", help="where planex2d and planex2d-occ are released")
     ap.add_argument("--planex2d", help="the planex2d version (default: the newest on the index)")
     ap.add_argument("--rebuild", action="store_true", help="build every module of the window anew")
@@ -82,7 +86,7 @@ def main():
     if not a.planex2d and not cores:
         raise SystemExit(f"no planex2d on {a.index}: release the core first, or give --planex2d")
     core = a.planex2d or str(max(Version(v) for v in cores))
-    want = window(a.window)
+    want = window(a.window, a.min_netgen)
     last = latest_occ(a.index)
     same = last is not None and last[1] == core
     counter = Version(last[0]).release[len(Version(core).release)] + 1 if same else 1
