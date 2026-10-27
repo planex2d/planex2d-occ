@@ -74,6 +74,16 @@ jobs:
           print(f"newest={p['window'][-1]}")
           print(f"release={'true' if p['release'] else 'false'}")
           EOF
+      # planex2d's sdist, once for every job: pip download would prepare its metadata and so install its build
+      # requirements from the index, and TestPyPI has none of them
+      - name: planex2d's sdist
+        if: steps.plan.outputs.release == 'true'
+        run: python tools/sdist.py "${{ steps.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.release == 'true'
+        with:
+          name: core-sdist
+          path: core-sdist/*.tar.gz
 
   build:
     needs: plan
@@ -88,6 +98,10 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-arm64' && '11.0' || '10.15' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-sdist
+          path: core-sdist
       - uses: actions/setup-python@v5
         if: matrix.os != 'linux'
         with:
@@ -95,7 +109,8 @@ jobs:
       - name: Build (Linux, in the manylinux_2_28 image netgen's wheels are built for)
         if: matrix.os == 'linux'
         run: |
-          docker run --rm -v "$PWD":/io -w /io -e INDEX_SIMPLE quay.io/pypa/manylinux_2_28_x86_64 bash -c '
+          export SDIST=$(ls core-sdist/*.tar.gz)
+          docker run --rm -v "$PWD":/io -w /io -e INDEX_SIMPLE -e SDIST quay.io/pypa/manylinux_2_28_x86_64 bash -c '
             set -e
             py=/opt/python/cp$(echo ${{ matrix.python }} | tr -d .)-cp$(echo ${{ matrix.python }} | tr -d .)/bin/python
             $py -m pip install -q packaging scikit-build-core auditwheel
@@ -109,6 +124,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install -q packaging scikit-build-core
+          export SDIST=$(ls core-sdist/*.tar.gz)
           sh tools/build_wheel.sh python "${{ needs.plan.outputs.planex2d }}" "${{ needs.plan.outputs.version }}" \
             "${{ needs.plan.outputs.build }}" "${{ needs.plan.outputs.keep }}" "${{ needs.plan.outputs.previous }}" \
             "${{ needs.plan.outputs.window }}"
@@ -134,21 +150,22 @@ jobs:
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.python }}
           path: wheelhouse
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-sdist
+          path: core-sdist
       # with the optional packages; not NGSolve, which pins netgen-mesher to its own version (its tests skip)
-      - name: The current planex2d from the index, the newest netgen, this wheel, the optional packages
+      - name: The current planex2d (its sdist from the index), the newest netgen, this wheel, the optional packages
         shell: bash
         run: |
-          python -m pip install --index-url "$INDEX_SIMPLE" --extra-index-url https://pypi.org/simple/ \
-            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          python -m pip install core-sdist/*.tar.gz
           python -m pip install "netgen-mesher==${{ needs.plan.outputs.newest }}" wheelhouse/*.whl pytest hypothesis \
             numpy scipy shapely ezdxf matplotlib plotly svgelements
           python -c "import planex as px; assert px._occ.loaded, px._occ.why; print('planex', px._planex._version, 'with OCC')"
       - name: planex2d's tests (its sdist's)
         shell: bash
         run: |
-          python -m pip download --index-url "$INDEX_SIMPLE" --no-binary :all: --no-deps -d sdist \
-            "planex2d==${{ needs.plan.outputs.planex2d }}"
-          mkdir src && tar xzf sdist/*.tar.gz -C src --strip-components=1
+          mkdir src && tar xzf core-sdist/*.tar.gz -C src --strip-components=1
           cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
 
   test-each-netgen:
@@ -167,15 +184,16 @@ jobs:
         with:
           name: wheel-linux-3.12
           path: wheelhouse
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-sdist
+          path: core-sdist
       - shell: bash
         run: |
-          python -m pip install --index-url "$INDEX_SIMPLE" --extra-index-url https://pypi.org/simple/ \
-            "planex2d==${{ needs.plan.outputs.planex2d }}"
+          python -m pip install core-sdist/*.tar.gz
           python -m pip install "netgen-mesher==${{ matrix.netgen }}" wheelhouse/*.whl pytest hypothesis
           python -c "import planex as px; assert px._occ.loaded, px._occ.why"
-          python -m pip download --index-url "$INDEX_SIMPLE" --no-binary :all: --no-deps -d sdist \
-            "planex2d==${{ needs.plan.outputs.planex2d }}"
-          mkdir src && tar xzf sdist/*.tar.gz -C src --strip-components=1
+          mkdir src && tar xzf core-sdist/*.tar.gz -C src --strip-components=1
           cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
 
   publish:
