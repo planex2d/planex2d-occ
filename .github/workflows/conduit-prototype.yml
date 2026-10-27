@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# The boundary of planex's package split, tried before any code moves: a core module built with
+# pybind11 from pip, of the versions in the matrix, and an OCC module built with netgen's pybind11 against the netgen
+# wheel pass objects both ways (the OCC module reads the core's objects through pybind11's conduit, the core takes over
+# the OCC module's new objects from a capsule). On Linux, macOS (Apple Silicon) and Windows.
+name: conduit prototype
+
+on:
+  push:
+    paths: ["prototype/**", ".github/workflows/conduit-prototype.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conduit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        # 3.1.0 shares netgen's registry (internals 12), 3.0.1 does not (11): the conduit carries the objects. 2.x
+        # cannot: its platform id has another format than 3.x's (found on Linux, 2026-10-27)
+        core-pybind11: ["3.1.0", "3.0.1"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: netgen and OpenCASCADE from their wheels, the core's pybind11 from pip
+        run: python -m pip install netgen-mesher netgen-occt-devel "pybind11==${{ matrix.core-pybind11 }}" cmake
+      - name: Build both modules
+        shell: bash
+        run: |
+          cmake -S prototype -B build -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')"
+          cmake --build build --config Release
+          cmake --install build --config Release --prefix prototype
+      - name: Pass objects both ways
+        working-directory: prototype
+        run: python test_conduit.py
