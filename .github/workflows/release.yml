@@ -164,7 +164,13 @@ jobs:
       - name: The current planex2d (its sdist from the index), the newest netgen, this wheel, the optional packages
         shell: bash
         run: |
-          python -m pip install core-sdist/*.tar.gz
+          # the core's wheel from the index, as users get it; its sdist where the index has no wheel for this platform
+          if python -m pip download --only-binary :all: --no-deps -d core-wheel --index-url "$INDEX_SIMPLE" \
+              "planex2d==${{ needs.plan.outputs.planex2d }}"; then
+            python -m pip install core-wheel/*.whl
+          else
+            python -m pip install core-sdist/*.tar.gz
+          fi
           python -m pip install "netgen-mesher==${{ needs.plan.outputs.newest }}" wheelhouse/*.whl pytest hypothesis \
             numpy scipy shapely ezdxf matplotlib plotly svgelements
           python -c "import planex as px; assert px._occ.loaded, px._occ.why; print('planex', px._planex._version, 'with OCC')"
@@ -172,7 +178,7 @@ jobs:
         shell: bash
         run: |
           mkdir src && tar xzf core-sdist/*.tar.gz -C src --strip-components=1
-          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
+          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short
 
   test-each-netgen:
     # every module built in this run with its own netgen, on one platform and Python, without the optional packages
@@ -196,11 +202,16 @@ jobs:
           path: core-sdist
       - shell: bash
         run: |
-          python -m pip install core-sdist/*.tar.gz
+          if python -m pip download --only-binary :all: --no-deps -d core-wheel --index-url "$INDEX_SIMPLE" \
+              "planex2d==${{ needs.plan.outputs.planex2d }}"; then
+            python -m pip install core-wheel/*.whl
+          else
+            python -m pip install core-sdist/*.tar.gz
+          fi
           python -m pip install "netgen-mesher==${{ matrix.netgen }}" wheelhouse/*.whl pytest hypothesis
           python -c "import planex as px; assert px._occ.loaded, px._occ.why"
           mkdir src && tar xzf core-sdist/*.tar.gz -C src --strip-components=1
-          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short -x
+          cd src && python -m pytest tests -q -p no:cacheprovider --tb=short
 
   publish:
     needs: [plan, test, test-each-netgen]
