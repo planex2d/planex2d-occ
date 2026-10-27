@@ -19,6 +19,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import sdist
+
 
 def run(*args, **kwargs):
     print("+", " ".join(str(a) for a in args), flush=True)
@@ -36,12 +38,7 @@ def venv_python(venv):
 
 def sdist_of(planex2d, index, work, local=None):
     """planex2d's sdist of that version (or the file local), unpacked"""
-    archive = local
-    if archive is None:
-        download = work / "sdist"
-        run(sys.executable, "-m", "pip", "download", f"planex2d=={planex2d}", "--no-binary", ":all:", "--no-deps", "-d",
-            download, *(["--index-url", index] if index else []))
-        archive = next(download.glob("planex2d-*.tar.gz"))
+    archive = Path(local) if local else sdist.download(planex2d, index or "https://pypi.org/simple/", work / "sdist")
     with tarfile.open(archive) as tar:
         tar.extractall(work, filter="data")
     return work / archive.name.removesuffix(".tar.gz")
@@ -95,7 +92,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--planex2d", required=True, help="the planex2d version to build for (its sdist)")
     ap.add_argument("--index", help="the package index of the sdist (default PyPI), e.g. https://test.pypi.org/simple/")
-    ap.add_argument("--sdist", type=Path, help="planex2d's sdist from a file instead of the index (tests)")
+    ap.add_argument("--sdist", type=Path,
+                    help="planex2d's sdist from a file instead of the index (the workflow fetches it once)")
     ap.add_argument("--netgen", nargs="+", required=True, help="the netgen versions to build modules for")
     ap.add_argument("--reuse", nargs="*", default=[], type=Path, help="earlier wheels whose other modules to keep")
     ap.add_argument("--keep", nargs="*", default=[], help="with --reuse: the netgen versions of those modules")
