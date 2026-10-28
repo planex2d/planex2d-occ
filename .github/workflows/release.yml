@@ -115,6 +115,9 @@ jobs:
         if: matrix.os != 'linux'
         with:
           python-version: ${{ matrix.python }}
+      # an artifact can arrive cut off: the sdist checked against the index's sha256, fetched again if it differs
+      - name: planex2d's sdist checked
+        run: python3 tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       - name: Build (Linux, in the manylinux_2_28 image netgen's wheels are built for)
         if: matrix.os == 'linux'
         run: |
@@ -164,6 +167,11 @@ jobs:
         with:
           name: core-sdist
           path: core-sdist
+      - uses: actions/checkout@v4
+        with:
+          path: occ
+      - name: planex2d's sdist checked
+        run: python occ/tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       # with the optional packages; not NGSolve, which pins netgen-mesher to its own version (its tests skip)
       - name: The current planex2d (its sdist from the index), the newest netgen, this wheel, the optional packages
         shell: bash
@@ -204,6 +212,11 @@ jobs:
         with:
           name: core-sdist
           path: core-sdist
+      - uses: actions/checkout@v4
+        with:
+          path: occ
+      - name: planex2d's sdist checked
+        run: python occ/tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       - shell: bash
         run: |
           if python -m pip download --only-binary :all: --no-deps -d core-wheel --index-url "$INDEX_SIMPLE" \
