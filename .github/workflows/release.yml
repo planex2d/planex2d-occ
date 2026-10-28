@@ -7,10 +7,11 @@
 # tests), publishes them and makes the tag and the GitHub release. Run by hand after a planex2d release with
 # rebuild=true: the whole window anew for that planex2d.
 #
-# FOR NOW EVERYTHING GOES TO TestPyPI (planex2d and planex2d-occ are read from it and released there), not to PyPI.
+# planex2d is read from PyPI and planex2d-occ is released there.
 #
-# Once: a trusted publisher on test.pypi.org for this repository, workflow release.yml, environment "testpypi", and the
-# environment "testpypi" in this repository's settings (no required reviewer: the releases are automatic).
+# Once: a trusted publisher on pypi.org for this repository, workflow release.yml, environment "pypi" (a pending
+# publisher until the project planex2d-occ exists), and the environment "pypi" in this repository's settings (no
+# required reviewer: the releases are automatic).
 name: release
 
 on:
@@ -31,9 +32,9 @@ permissions:
   contents: read
 
 env:
-  # the index planex2d is read from and planex2d-occ is released to: TestPyPI until the user says otherwise
-  INDEX: https://test.pypi.org
-  INDEX_SIMPLE: https://test.pypi.org/simple/
+  # the index planex2d is read from and planex2d-occ is released to
+  INDEX: https://pypi.org
+  INDEX_SIMPLE: https://pypi.org/simple/
   WINDOW: "6"
   # the oldest netgen planex's OCC bindings build against: 6.2.2603 and 6.2.2604 have another netgen::Identify
   MIN_NETGEN: "6.2.2605"
@@ -79,8 +80,8 @@ jobs:
           print(f"newest={p['window'][-1]}")
           print(f"release={'true' if p['release'] else 'false'}")
           EOF
-      # planex2d's sdist, once for every job: pip download would prepare its metadata and so install its build
-      # requirements from the index, and TestPyPI has none of them
+      # planex2d's sdist, once for every job, as the index's file: pip download would prepare its metadata and so
+      # install its build requirements
       - name: planex2d's sdist
         if: steps.plan.outputs.release == 'true'
         run: python tools/sdist.py "${{ steps.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
@@ -219,7 +220,7 @@ jobs:
   publish:
     needs: [plan, test, test-each-netgen]
     runs-on: ubuntu-latest
-    environment: testpypi
+    environment: pypi
     permissions:
       id-token: write
     steps:
@@ -229,8 +230,6 @@ jobs:
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
 
   release:
     # after the upload, so that a failed upload leaves no tag
@@ -249,4 +248,4 @@ jobs:
         run: |
           gh release create "v${{ needs.plan.outputs.version }}" dist/*.whl --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "planex2d-occ ${{ needs.plan.outputs.version }}" \
-            --notes "For planex2d ${{ needs.plan.outputs.planex2d }}, with modules for netgen-mesher ${{ needs.plan.outputs.window }}. On TestPyPI."
+            --notes "For planex2d ${{ needs.plan.outputs.planex2d }}, with modules for netgen-mesher ${{ needs.plan.outputs.window }}."
