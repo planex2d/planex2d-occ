@@ -97,8 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows waits for the MSVC port of planex's core (names that Windows' headers define as macros)
-        os: [linux, macos-arm64, macos-x86_64]
+        os: [linux, macos-arm64, macos-x86_64, windows]
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-15' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
     env:
@@ -117,7 +116,8 @@ jobs:
           python-version: ${{ matrix.python }}
       # an artifact can arrive cut off: the sdist checked against the index's sha256, fetched again if it differs
       - name: planex2d's sdist checked
-        run: python3 tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
+        shell: bash
+        run: ${{ matrix.os == 'linux' && 'python3' || 'python' }} tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       - name: Build (Linux, in the manylinux_2_28 image netgen's wheels are built for)
         if: matrix.os == 'linux'
         run: |
@@ -151,8 +151,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows waits for the MSVC port of planex's core (names that Windows' headers define as macros)
-        os: [linux, macos-arm64, macos-x86_64]
+        os: [linux, macos-arm64, macos-x86_64, windows]
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-15' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
     steps:
@@ -171,6 +170,7 @@ jobs:
         with:
           path: occ
       - name: planex2d's sdist checked
+        shell: bash
         run: python occ/tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       # with the optional packages; not NGSolve, which pins netgen-mesher to its own version (its tests skip)
       - name: The current planex2d (its sdist from the index), the newest netgen, this wheel, the optional packages
@@ -216,6 +216,7 @@ jobs:
         with:
           path: occ
       - name: planex2d's sdist checked
+        shell: bash
         run: python occ/tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       - shell: bash
         run: |

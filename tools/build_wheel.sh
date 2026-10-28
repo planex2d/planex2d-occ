@@ -8,7 +8,8 @@
 # INDEX_SIMPLE: the index planex2d and the previous planex2d-occ come from; SDIST: planex2d's sdist from a file (tests)
 set -e
 py=$1 planex2d=$2 version=$3 build=$4 keep=$5 previous=$6 window=$7
-staging=$($py -c 'import os; print(os.path.abspath("staging"))')
+# with forward slashes on Windows too, which both bash and CMake read
+staging=$($py -c 'import pathlib; print(pathlib.Path("staging").absolute().as_posix())')
 reuse=""
 if [ -n "$keep" ] && [ -n "$previous" ]; then
     $py -m pip download "planex2d-occ==$previous" --no-deps --only-binary :all: -d previous --index-url "$INDEX_SIMPLE"

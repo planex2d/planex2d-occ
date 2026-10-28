@@ -67,15 +67,17 @@ def build(source, planex2d, netgen, work, staging):
 
 def licenses(source, prefix, staging):
     """the license texts of what the modules compile in: Eigen and Taskflow from planex2d's sdist, pybind11 from netgen's
-    include folder"""
+    include folder (include/netgen/pybind11 on Linux and macOS, netgen/include/pybind11 on Windows)"""
     out = staging / "licenses"
     out.mkdir(exist_ok=True)
     for name in ("COPYING.MPL2", "COPYING.APACHE", "COPYING.BSD"):
         (out / f"Eigen-{name}").write_bytes((source / "external_dependencies/eigen" / name).read_bytes())
     (out / "Taskflow-LICENSE").write_bytes((source / "external_dependencies/taskflow/LICENSE").read_bytes())
-    found = next(prefix.rglob("include/netgen/pybind11/LICENSE"), None)
-    if found:
-        (out / "pybind11-LICENSE").write_bytes(found.read_bytes())
+    found = next((p for pattern in ("include/netgen/pybind11/LICENSE", "netgen/include/pybind11/LICENSE")
+                  for p in prefix.rglob(pattern)), None)
+    if found is None:
+        raise SystemExit(f"pybind11's LICENSE is not in netgen's include folder under {prefix}")
+    (out / "pybind11-LICENSE").write_bytes(found.read_bytes())
 
 
 def reuse(wheels, keep, staging):
