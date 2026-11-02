@@ -16,6 +16,9 @@ The pre-release has modules for netgen's nightlies newer than its newest real re
 so that pip takes it only with --pre and the next main release sorts above it; its modules are reused from the latest
 pre-release of the same counter.
 
+Both take only the netgen versions with a wheel for every platform and Python of release.yml's build matrix (BUILT):
+a nightly without a Windows wheel, say, is left out on every platform.
+
     python tools/plan.py --window 6 --index https://test.pypi.org/
 """
 import argparse
@@ -24,7 +27,13 @@ import urllib.error
 import urllib.request
 
 from packaging.requirements import Requirement
+from packaging.utils import parse_wheel_filename
 from packaging.version import Version
+
+# release.yml's build matrix: for each os the start and the ends of a wheel's platform tag that it installs, the Pythons
+BUILT = {"linux": ("manylinux", ("x86_64",)), "macos-arm64": ("macosx", ("arm64", "universal2")),
+         "macos-x86_64": ("macosx", ("x86_64", "universal2")), "windows": ("win", ("amd64",))}
+PYTHONS = ("3.11", "3.12", "3.13", "3.14")
 
 
 def releases(index, name):
@@ -40,11 +49,25 @@ def releases(index, name):
     return versions, data["info"].get("requires_dist") or []
 
 
+def complete(files):
+    """whether a release's files hold a wheel for every os and Python of the build matrix (BUILT, PYTHONS)"""
+    tags = {t for f in files if f["filename"].endswith(".whl") and not f.get("yanked")
+            for t in parse_wheel_filename(f["filename"])[3]}
+    return all(any(t.interpreter == "cp" + python.replace(".", "") and t.platform.startswith(start)
+                   and t.platform.endswith(ends) for t in tags)
+               for start, ends in BUILT.values() for python in PYTHONS)
+
+
+def netgen():
+    """netgen-mesher's versions on PyPI with a wheel for every os and Python of the build matrix"""
+    versions, _ = releases("https://pypi.org", "netgen-mesher")
+    return [v for v, files in versions.items() if complete(files)]
+
+
 def window(size, minimum=None):
     """the newest real netgen-mesher releases on PyPI from minimum on (the oldest whose C++ API planex builds
     against), oldest first"""
-    versions, _ = releases("https://pypi.org", "netgen-mesher")
-    final = sorted(Version(v) for v in versions if not Version(v).is_prerelease)
+    final = sorted(Version(v) for v in netgen() if not Version(v).is_prerelease)
     if minimum:
         final = [v for v in final if v >= Version(minimum)]
     return [str(v) for v in final[-size:]]
@@ -54,7 +77,7 @@ def nightlies():
     """netgen-mesher's pre-releases on PyPI newer than its newest real release, oldest first"""
     versions, _ = releases("https://pypi.org", "netgen-mesher")
     newest = max(Version(v) for v in versions if not Version(v).is_prerelease)
-    return [str(v) for v in sorted(Version(v) for v in versions if Version(v).is_prerelease and Version(v) > newest)]
+    return [str(v) for v in sorted(Version(v) for v in netgen() if Version(v).is_prerelease and Version(v) > newest)]
 
 
 def latest_occ(index, core, counter=None):
@@ -81,8 +104,7 @@ def latest_occ(index, core, counter=None):
 
 def window_of(req, nightly=False):
     """the netgen versions a release's requirement admits among netgen's real releases, or among its nightlies"""
-    versions, _ = releases("https://pypi.org", "netgen-mesher")
-    return sorted((v for v in versions if Version(v).is_prerelease == nightly and req.specifier.contains(v, prereleases=True)),
+    return sorted((v for v in netgen() if Version(v).is_prerelease == nightly and req.specifier.contains(v, prereleases=True)),
                   key=Version)
 
 
