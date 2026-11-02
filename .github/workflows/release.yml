@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# planex2d-occ's releases: every day it looks for a new real netgen-mesher release on PyPI (nightlies such as
-# 6.2.2608.post63.dev0 are pre-releases and left out) and, when the latest planex2d-occ lacks a module for it, builds
-# the module for every platform and Python, tests the wheels with the current planex2d from the index (its sdist's
-# tests), publishes them and makes the tag and the GitHub release. Run by hand after a planex2d release with
-# rebuild=true: the whole window anew for that planex2d.
+# planex2d-occ's releases: every day it looks for new netgen-mesher releases on PyPI and builds two kinds of release,
+# each when it lacks a module:
+# - the main release, for netgen's newest real releases (post releases included);
+# - the pre-release, for netgen's nightlies (such as 6.2.2608.post63.dev0) newer than its newest real release, with a
+#   version pip takes only with --pre (0.2.4.2.dev1 after 0.2.4.1).
+# Each builds the new modules for every platform and Python, tests the wheels with the current planex2d from the index
+# (its sdist's tests), publishes them and makes the tag and the GitHub release. Run by hand after a planex2d release
+# with rebuild=true: every module anew for that planex2d.
 #
 # planex2d is read from PyPI and planex2d-occ is released there.
 #
@@ -24,7 +27,7 @@ on:
         required: false
         default: ""
       rebuild:
-        description: "build every module of the window anew (after a planex2d release)"
+        description: "build every module anew (after a planex2d release)"
         type: boolean
         default: false
 
@@ -41,19 +44,18 @@ env:
   # the oldest planex2d a scheduled run builds for (the first with planex2d-occ); a run by hand takes any planex2d,
   # pre-releases too
   MIN_PLANEX2D: "0.2.0"
+  # the oldest planex2d the pre-release is built for: netgen's nightlies use OpenCASCADE 8, which planex's OCC
+  # bindings compile with from 0.3.0 on
+  MIN_PLANEX2D_PRE: "0.3.0"
 
 jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
       planex2d: ${{ steps.plan.outputs.planex2d }}
-      version: ${{ steps.plan.outputs.version }}
-      window: ${{ steps.plan.outputs.window }}
-      build: ${{ steps.plan.outputs.build }}
-      build_json: ${{ steps.plan.outputs.build_json }}
-      keep: ${{ steps.plan.outputs.keep }}
-      previous: ${{ steps.plan.outputs.previous }}
-      newest: ${{ steps.plan.outputs.newest }}
+      plans: ${{ steps.plan.outputs.plans }}
+      kinds: ${{ steps.plan.outputs.kinds }}
+      each: ${{ steps.plan.outputs.each }}
       release: ${{ steps.plan.outputs.release }}
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +65,7 @@ jobs:
       - run: python -m pip install packaging
       - id: plan
         run: |
-          args="--window $WINDOW --min-netgen $MIN_NETGEN --min-planex2d $MIN_PLANEX2D --index $INDEX"
+          args="--window $WINDOW --min-netgen $MIN_NETGEN --min-planex2d $MIN_PLANEX2D --min-planex2d-pre $MIN_PLANEX2D_PRE --index $INDEX"
           [ -n "${{ inputs.planex2d }}" ] && args="$args --planex2d ${{ inputs.planex2d }}"
           [ "${{ inputs.rebuild }}" = "true" ] && args="$args --rebuild"
           python tools/plan.py $args > plan.json
@@ -71,14 +73,14 @@ jobs:
           python - <<'EOF' >> "$GITHUB_OUTPUT"
           import json
           p = json.load(open("plan.json"))
+          kinds = [k for k in ("main", "pre") if p[k]["release"]]
+          plans = {k: {key: " ".join(value) if isinstance(value, list) else value or "" for key, value in p[k].items()}
+                   for k in ("main", "pre")}
           print(f"planex2d={p['planex2d']}")
-          print(f"version={p['version']}")
-          print(f"previous={p['previous'] or ''}")
-          for key in ("window", "build", "keep"):
-              print(f"{key}={' '.join(p[key])}")
-          print(f"build_json={json.dumps(p['build'])}")
-          print(f"newest={p['window'][-1]}")
-          print(f"release={'true' if p['release'] else 'false'}")
+          print(f"plans={json.dumps(plans)}")
+          print(f"kinds={json.dumps(kinds)}")
+          print(f"each={json.dumps([{'kind': k, 'netgen': v} for k in kinds for v in p[k]['build']])}")
+          print(f"release={'true' if kinds else 'false'}")
           EOF
       # planex2d's sdist, once for every job, as the index's file: pip download would prepare its metadata and so
       # install its build requirements
@@ -97,6 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
         os: [linux, macos-arm64, macos-x86_64, windows]
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-15' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
@@ -104,6 +107,11 @@ jobs:
       # planex writes numbers with std::to_chars, which Apple's C++ library has from macOS 13.3 on; the macOS 15
       # runners' Xcode 16 builds plain structs from parentheses (C++20), Xcode 15 does not
       MACOSX_DEPLOYMENT_TARGET: "13.3"
+      VERSION: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].version }}
+      BUILD: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].build }}
+      KEEP: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].keep }}
+      PREVIOUS: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].previous }}
+      WINDOW_VERSIONS: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].window }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -122,13 +130,12 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           export SDIST=$(ls core-sdist/*.tar.gz)
-          docker run --rm -v "$PWD":/io -w /io -e INDEX_SIMPLE -e SDIST quay.io/pypa/manylinux_2_28_x86_64 bash -c '
+          docker run --rm -v "$PWD":/io -w /io -e INDEX_SIMPLE -e SDIST -e VERSION -e BUILD -e KEEP -e PREVIOUS -e WINDOW_VERSIONS \
+            quay.io/pypa/manylinux_2_28_x86_64 bash -c '
             set -e
             py=/opt/python/cp$(echo ${{ matrix.python }} | tr -d .)-cp$(echo ${{ matrix.python }} | tr -d .)/bin/python
             $py -m pip install -q packaging scikit-build-core auditwheel
-            sh tools/build_wheel.sh "$py" "${{ needs.plan.outputs.planex2d }}" "${{ needs.plan.outputs.version }}" \
-              "${{ needs.plan.outputs.build }}" "${{ needs.plan.outputs.keep }}" "${{ needs.plan.outputs.previous }}" \
-              "${{ needs.plan.outputs.window }}"
+            sh tools/build_wheel.sh "$py" "${{ needs.plan.outputs.planex2d }}" "$VERSION" "$BUILD" "$KEEP" "$PREVIOUS" "$WINDOW_VERSIONS"
             $py -m auditwheel repair -w wheelhouse --exclude "libnglib.so" --exclude "libngcore.so" --exclude "libTK*" dist/*.whl
           '
       - name: Build (macOS, Windows)
@@ -137,13 +144,11 @@ jobs:
         run: |
           python -m pip install -q packaging scikit-build-core
           export SDIST=$(ls core-sdist/*.tar.gz)
-          sh tools/build_wheel.sh python "${{ needs.plan.outputs.planex2d }}" "${{ needs.plan.outputs.version }}" \
-            "${{ needs.plan.outputs.build }}" "${{ needs.plan.outputs.keep }}" "${{ needs.plan.outputs.previous }}" \
-            "${{ needs.plan.outputs.window }}"
+          sh tools/build_wheel.sh python "${{ needs.plan.outputs.planex2d }}" "$VERSION" "$BUILD" "$KEEP" "$PREVIOUS" "$WINDOW_VERSIONS"
           mkdir -p wheelhouse && cp dist/*.whl wheelhouse/
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          name: wheel-${{ matrix.kind }}-${{ matrix.os }}-${{ matrix.python }}
           path: wheelhouse/*.whl
 
   test:
@@ -151,16 +156,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
         os: [linux, macos-arm64, macos-x86_64, windows]
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os == 'macos-arm64' && 'macos-15' || matrix.os == 'macos-x86_64' && 'macos-15-intel' || 'windows-latest' }}
+    env:
+      NEWEST: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].newest }}
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
       - uses: actions/download-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.python }}
+          name: wheel-${{ matrix.kind }}-${{ matrix.os }}-${{ matrix.python }}
           path: wheelhouse
       - uses: actions/download-artifact@v4
         with:
@@ -173,7 +181,7 @@ jobs:
         shell: bash
         run: python occ/tools/sdist.py "${{ needs.plan.outputs.planex2d }}" "$INDEX_SIMPLE" core-sdist
       # with the optional packages; not NGSolve, which pins netgen-mesher to its own version (its tests skip)
-      - name: The current planex2d (its sdist from the index), the newest netgen, this wheel, the optional packages
+      - name: The current planex2d (its sdist from the index), the newest netgen of this kind, this wheel, the optional packages
         shell: bash
         run: |
           # the core's wheel from the index, as users get it; its sdist where the index has no wheel for this platform
@@ -183,7 +191,7 @@ jobs:
           else
             python -m pip install core-sdist/*.tar.gz
           fi
-          python -m pip install "netgen-mesher==${{ needs.plan.outputs.newest }}" wheelhouse/*.whl pytest hypothesis \
+          python -m pip install "netgen-mesher==$NEWEST" wheelhouse/*.whl pytest hypothesis \
             numpy scipy shapely ezdxf matplotlib plotly svgelements
           python -c "import planex as px; assert px._occ.loaded, px._occ.why; print('planex', px._planex._version, 'with OCC')"
       - name: planex2d's tests (its sdist's)
@@ -199,14 +207,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        netgen: ${{ fromJSON(needs.plan.outputs.build_json) }}
+        include: ${{ fromJSON(needs.plan.outputs.each) }}
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          name: wheel-linux-3.12
+          name: wheel-${{ matrix.kind }}-linux-3.12
           path: wheelhouse
       - uses: actions/download-artifact@v4
         with:
@@ -251,15 +259,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      matrix:
+        kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
+    env:
+      VERSION: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].version }}
+      WINDOW_VERSIONS: ${{ fromJSON(needs.plan.outputs.plans)[matrix.kind].window }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          pattern: wheel-${{ matrix.kind }}-*
           path: dist
           merge-multiple: true
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ needs.plan.outputs.version }}" dist/*.whl --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "planex2d-occ ${{ needs.plan.outputs.version }}" \
-            --notes "For planex2d ${{ needs.plan.outputs.planex2d }}, with modules for netgen-mesher ${{ needs.plan.outputs.window }}."
+          flag=""
+          notes="For planex2d ${{ needs.plan.outputs.planex2d }}, with modules for netgen-mesher $WINDOW_VERSIONS."
+          if [ "${{ matrix.kind }}" = "pre" ]; then
+            flag="--prerelease"
+            notes="$notes For netgen's nightlies: pip install --pre planex2d[occ]."
+          fi
+          gh release create "v$VERSION" dist/*.whl --repo "$GITHUB_REPOSITORY" $flag \
+            --target "$GITHUB_SHA" --title "planex2d-occ $VERSION" --notes "$notes"

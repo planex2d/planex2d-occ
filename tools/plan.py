@@ -1,14 +1,20 @@
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-"""What a release run of planex2d-occ builds, as JSON for the workflow.
+"""What a release run of planex2d-occ builds, as JSON for the workflow: the main release and the pre-release.
 
 The planex2d is the one given (a pre-release too, by hand) or the newest final release on the index from
---min-planex2d on (a scheduled run; none yet: nothing to build). The window is the newest real releases of
-netgen-mesher on PyPI (final releases: post releases count, nightlies such as 6.2.2608.post63.dev0 do not), ordered by
-version, not by upload. The latest planex2d-occ for that planex2d says what is released already: the netgen versions it
-has modules for. None yet builds the whole window; else only the netgen versions it lacks are built and the others
-reused from its wheels; nothing new means no release.
+--min-planex2d on (a scheduled run; none yet: nothing to build).
+
+The main release has modules for the newest real releases of netgen-mesher on PyPI (final releases: post releases
+count, nightlies such as 6.2.2608.post63.dev0 do not), ordered by version, not by upload. The latest main release for
+that planex2d says what is released already: the netgen versions it has modules for. None yet builds the whole window;
+else only the netgen versions it lacks are built and the others reused from its wheels; nothing new means no release.
+
+The pre-release has modules for netgen's nightlies newer than its newest real release, for a final planex2d from
+--min-planex2d-pre on. Its version is the next main release's with .devN (0.2.4.1 released: 0.2.4.2.dev1, .dev2, ...),
+so that pip takes it only with --pre and the next main release sorts above it; its modules are reused from the latest
+pre-release of the same counter.
 
     python tools/plan.py --window 6 --index https://test.pypi.org/
 """
@@ -44,27 +50,40 @@ def window(size, minimum=None):
     return [str(v) for v in final[-size:]]
 
 
-def latest_occ(index, core):
+def nightlies():
+    """netgen-mesher's pre-releases on PyPI newer than its newest real release, oldest first"""
+    versions, _ = releases("https://pypi.org", "netgen-mesher")
+    newest = max(Version(v) for v in versions if not Version(v).is_prerelease)
+    return [str(v) for v in sorted(Version(v) for v in versions if Version(v).is_prerelease and Version(v) > newest)]
+
+
+def latest_occ(index, core, counter=None):
     """the latest planex2d-occ built for that planex2d on the index (its version names the core's, see occ_version):
-    (version, its netgen versions), or None"""
+    (version, its netgen versions), or None; with counter, the latest pre-release of that counter instead"""
     versions, _ = releases(index, "planex2d-occ")
     c = Version(core)
-    mine = [Version(v) for v in versions
-            if Version(v).release[:-1] == c.release and len(Version(v).release) == len(c.release) + 1
-            and (Version(v).pre, Version(v).post, Version(v).dev) == (c.pre, c.post, c.dev)]
+    if counter is None:
+        mine = [Version(v) for v in versions
+                if Version(v).release[:-1] == c.release and len(Version(v).release) == len(c.release) + 1
+                and (Version(v).pre, Version(v).post, Version(v).dev) == (c.pre, c.post, c.dev)]
+    else:
+        mine = [Version(v) for v in versions
+                if Version(v).release == c.release + (counter,) and Version(v).dev is not None
+                and Version(v).pre is None and Version(v).post is None]
     if not mine:
         return None
     newest = str(max(mine))
     with urllib.request.urlopen(f"{index.rstrip('/')}/pypi/planex2d-occ/{newest}/json") as r:
         requires = json.load(r)["info"].get("requires_dist") or []
-    netgen = [window_of(req) for req in map(Requirement, requires) if req.name == "netgen-mesher"]
+    netgen = [window_of(req, counter is not None) for req in map(Requirement, requires) if req.name == "netgen-mesher"]
     return newest, netgen[0] if netgen else []
 
 
-def window_of(req):
-    """the netgen versions a release's requirement admits among netgen's real releases"""
+def window_of(req, nightly=False):
+    """the netgen versions a release's requirement admits among netgen's real releases, or among its nightlies"""
     versions, _ = releases("https://pypi.org", "netgen-mesher")
-    return sorted((v for v in versions if not Version(v).is_prerelease and req.specifier.contains(v)), key=Version)
+    return sorted((v for v in versions if Version(v).is_prerelease == nightly and req.specifier.contains(v, prereleases=True)),
+                  key=Version)
 
 
 def occ_version(core, counter):
@@ -74,6 +93,22 @@ def occ_version(core, counter):
     return f"{v.base_version}.{counter}{str(v)[len(v.base_version):]}"
 
 
+def plan(want, last, rebuild, version):
+    """what a release builds: the netgen versions in want that the last release (version, netgen versions) lacks"""
+    if last and not rebuild:
+        build = [v for v in want if v not in last[1]]
+        keep = [v for v in want if v in last[1]]
+        previous = last[0]
+    else:
+        build, keep, previous = want, [], None
+    return {"window": want, "build": build, "keep": keep, "previous": previous, "version": version,
+            "release": bool(build), "newest": want[-1] if want else ""}
+
+
+def nothing():
+    return {"window": [], "build": [], "keep": [], "previous": None, "version": "", "release": False, "newest": ""}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--window", type=int, default=6, help="how many netgen releases a wheel has modules for")
@@ -81,30 +116,29 @@ def main():
     ap.add_argument("--index", default="https://pypi.org", help="where planex2d and planex2d-occ are released")
     ap.add_argument("--planex2d", help="the planex2d version, a pre-release too (default: the newest final release)")
     ap.add_argument("--min-planex2d", help="the oldest planex2d the default may be (the first with planex2d-occ)")
-    ap.add_argument("--rebuild", action="store_true", help="build every module of the window anew")
+    ap.add_argument("--min-planex2d-pre", help="the oldest planex2d a pre-release is built for (none: no pre-releases)")
+    ap.add_argument("--rebuild", action="store_true", help="build every module anew")
     a = ap.parse_args()
-    want = window(a.window, a.min_netgen)
     core = a.planex2d
     if not core:
         cores, _ = releases(a.index, "planex2d")
         finals = [Version(v) for v in cores if not Version(v).is_prerelease]
         finals = [v for v in finals if not a.min_planex2d or v >= Version(a.min_planex2d)]
         if not finals:
-            print(json.dumps({"planex2d": "", "window": want, "build": [], "keep": [], "previous": None, "version": "",
-                              "release": False}))
+            print(json.dumps({"planex2d": "", "main": nothing(), "pre": nothing()}))
             return
         core = str(max(finals))
     last = latest_occ(a.index, core)
     counter = Version(last[0]).release[-1] + 1 if last else 1
-    if last and not a.rebuild:
-        build = [v for v in want if v not in last[1]]
-        keep = [v for v in want if v in last[1]]
-        previous = last[0]
-    else:
-        build, keep, previous = want, [], None
-    version = occ_version(core, counter)
-    print(json.dumps({"planex2d": core, "window": want, "build": build, "keep": keep, "previous": previous,
-                      "version": version, "release": bool(build)}))
+    main_plan = plan(window(a.window, a.min_netgen), last, a.rebuild, occ_version(core, counter))
+    pre_plan = nothing()
+    c = Version(core)
+    if a.min_planex2d_pre and not c.is_prerelease and not c.is_postrelease and c >= Version(a.min_planex2d_pre):
+        counter = counter + 1 if main_plan["release"] else counter
+        last_pre = latest_occ(a.index, core, counter)
+        dev = Version(last_pre[0]).dev + 1 if last_pre else 1
+        pre_plan = plan(nightlies(), last_pre, a.rebuild, f"{occ_version(core, counter)}.dev{dev}")
+    print(json.dumps({"planex2d": core, "main": main_plan, "pre": pre_plan}))
 
 
 if __name__ == "__main__":
