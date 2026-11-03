@@ -5,7 +5,8 @@
 
     python3 pack.py base <folder> <out>
         <out>/<BASE>/: netgen_mesher (netgen/, pyngcore/, netgen_mesher.libs/ with libnglib, libngcore and libocct,
-        OpenCASCADE's one side module), ngsolve (ngsolve/, ngsolve.libs/libopenblas.so) and NOTICES.txt
+        OpenCASCADE's one side module), ngsolve (ngsolve/, ngsolve.libs/libopenblas.so), NOTICES.txt and base.json
+        (the pins, their sources, the files, for the site's page of the Pyodide files)
     python3 pack.py planex <folder> <planex2d version> <planex2d-occ repository> <out>
         <out>/<version>/: planex2d_occ (the loader and planex_occ/ng_<netgen>/_planex_occ) and pyodide-lock.json:
         Pyodide's own lock with its packages on jsDelivr, planex2d from PyPI, the base wheels in ../<BASE>/
@@ -163,6 +164,30 @@ pyodide-base-{PIN['BASE']} of that repository (pyodide-base-{PIN['BASE']}-source
 
 The license texts are in each wheel's .dist-info/licenses folder. planex2d-occ is not affiliated with these projects.
 """)
+    exports = root / "build/occt-exports.txt"
+    repository = PIN.get("GITHUB_REPOSITORY", "planex2d/planex2d-occ")
+    facts = {
+        "base": PIN["BASE"],
+        "planex2d": PIN["BASE"].rsplit("-planex2d-", 1)[1],
+        "pyodide": {"version": PIN["PYODIDE_VERSION"], "abi": PIN["PYODIDE_ABI"], "python": PIN["PYTHON_VERSION"],
+                    "source": f"https://github.com/pyodide/pyodide/releases/tag/{PIN['PYODIDE_VERSION']}"},
+        "emscripten": PIN["EMSDK_VERSION"],
+        "netgen": {"version": PIN["NETGEN_VERSION"], "commit": PIN["NETGEN_COMMIT"],
+                   "source": f"https://github.com/NGSolve/netgen/tree/{PIN['NETGEN_COMMIT']}"},
+        "ngsolve": {"version": PIN["NGSOLVE_VERSION"], "commit": PIN["NGSOLVE_COMMIT"],
+                    "source": f"https://github.com/NGSolve/ngsolve/tree/{PIN['NGSOLVE_COMMIT']}"},
+        "opencascade": {"version": occ, "tag": f"V{PIN['OCC_VERSION']}",
+                        "source": f"https://github.com/Open-Cascade-SAS/OCCT/releases/tag/V{PIN['OCC_VERSION']}",
+                        "exports": len(exports.read_text().split()) if exports.exists() else None},
+        "pybind11": {"commit": PIN["PYBIND11_COMMIT"]},
+        "zlib": PIN["ZLIB_VERSION"],
+        "openblas": PIN["OPENBLAS_VERSION"],
+        "files": [{"name": p.name, "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                  for p in [*wheels, out / "NOTICES.txt"]],
+        "sources": {"release": f"https://github.com/{repository}/releases/tag/pyodide-base-{PIN['BASE']}",
+                    "file": f"pyodide-base-{PIN['BASE']}-sources.tar"},
+    }
+    (out / "base.json").write_text(json.dumps(facts, indent=1) + "\n")
     for w in wheels:
         print(w.name, round(w.stat().st_size / 1e6, 1), "MB")
 
