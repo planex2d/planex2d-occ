@@ -51,3 +51,25 @@ generic classes) under terms of your choice, provided that you give
 prominent notice in supporting documentation to this code that it makes use
 of or is based on facilities provided by the Open CASCADE Technology software.
 ```
+
+## The Pyodide build (for the browser)
+
+`tools/build_pyodide.sh` builds planex2d-occ for Pyodide, for planex2d.org's playground; these files are not on PyPI.
+Unlike the wheels above, this build passes on the libraries themselves, compiled to WebAssembly from unchanged
+sources (the pins: `tools/pyodide/pins.sh`). The build follows NGSolve's own Pyodide build and changes only build
+files: OpenCASCADE is one shared library that netgen and planex2d-occ share, exporting what they and NGSolve use (the
+linker leaves out the rest); NGSolve's two build patches (pybind11's exception flag, OpenCASCADE's signal handling);
+OpenCASCADE's exception flag. Each release `pyodide-base-*` of this repository holds the complete sources of its files
+(`pyodide-base-*-sources.tar`), and each wheel carries the license texts of what it contains in its
+`.dist-info/licenses` folder.
+
+- netgen and ngcore, https://github.com/NGSolve/netgen, and NGSolve, https://github.com/NGSolve/ngsolve: GNU Lesser
+  General Public License version 2.1 (the netgen-mesher and ngsolve wheels).
+- Open CASCADE Technology, https://dev.opencascade.org: GNU Lesser General Public License version 2.1 with the Open
+  CASCADE exception quoted above (`netgen_mesher.libs/libocct.so` in the netgen-mesher wheel). It makes use of
+  facilities provided by the Open CASCADE Technology software.
+- pybind11, netgen's copy: BSD 3-clause license.
+- zlib, https://zlib.net, compiled into netgen: zlib license.
+- OpenBLAS, https://www.openblas.net, Pyodide's build of it (`ngsolve.libs/libopenblas.so`): BSD 3-clause license.
+
+planex2d-occ is not affiliated with these projects.

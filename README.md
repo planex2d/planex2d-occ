@@ -40,6 +40,16 @@ The modules are compiled from planex2d's source distribution of the pinned versi
 version, against that netgen and the OpenCASCADE it was built with, using netgen's own pybind11. A scheduled workflow
 builds and tests a new release when netgen publishes a release or a nightly build: `.github/workflows/release.yml`, with the scripts in `tools/`.
 
+## In the browser
+
+planex2d.org's playground runs planex2d-occ in Pyodide. PyPI has no Pyodide netgen to depend on, so these files are
+not on PyPI. `.github/workflows/pyodide.yml` builds them with `tools/build_pyodide.sh`:
+- netgen, NGSolve and OpenCASCADE, at fixed versions (`tools/pyodide/pins.sh`), once per set of pins and the planex2d
+  version whose OCC calls OpenCASCADE's exports follow (a later version that needs more gets a new one);
+- planex2d-occ for each planex2d version on top, tested in Pyodide under Node.
+
+It attaches the wheels and a Pyodide lock file to this repository's releases `pyodide-base-*` and `pyodide-<planex2d>`.
+
 ## License
 
 LGPL-2.1-or-later, as planex2d; see `LICENSE` and `THIRD_PARTY_NOTICES.md`.

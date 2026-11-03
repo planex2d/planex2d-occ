@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# planex2d-occ for the browser (Pyodide), for planex2d.org's playground; not on PyPI, which has no Pyodide netgen.
+# Run by hand with a planex2d version, after that version is on PyPI with its Pyodide wheel.
+# - The base build (OpenCASCADE, netgen, NGSolve at the pins of tools/pyodide/pins.sh) is kept as the release
+#   pyodide-base-<BASE>: what later runs build on, the base wheels for the site, the sources. Its OpenCASCADE exports
+#   only what netgen, NGSolve and the OCC module of the planex2d version it was built with import, so <BASE> names
+#   that version. A run builds a base when these pins have none yet, or with new_base.
+# - planex's OCC module for the version is built on the newest base of these pins. If it imports an OpenCASCADE
+#   function that base leaves out, the run stops and names it: run again with new_base. Otherwise it is tested in
+#   Pyodide under Node (a smoke test and planex2d's tests) and released as pyodide-<planex2d>: its wheel and the
+#   Pyodide lock file, which names its base.
+# A version released once is not built again, so that the playground's links to it keep running as they did.
+name: pyodide
+
+on:
+  workflow_dispatch:
+    inputs:
+      planex2d:
+        description: "the planex2d version to build for (on PyPI with its Pyodide wheel)"
+        required: true
+      new_base:
+        description: "build a new base for this version (when the newest base leaves out an OpenCASCADE function it needs)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      base: ${{ steps.plan.outputs.base }}
+      build_base: ${{ steps.plan.outputs.build_base }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLANEX: ${{ inputs.planex2d }}
+          NEW_BASE: ${{ inputs.new_base }}
+        run: |
+          source tools/pyodide/pins.sh
+          if gh release view "pyodide-$PLANEX" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::pyodide-$PLANEX is released already; a released version is not built again"
+            exit 1
+          fi
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | startswith(\"pyodide-base-$BASE_PREFIX-planex2d-\"))] | sort_by(.createdAt) | last | .tagName // \"\"")
+          if [ "$NEW_BASE" = "true" ] || [ -z "$newest" ]; then
+            base="$BASE_PREFIX-planex2d-$PLANEX"
+            if gh release view "pyodide-base-$base" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              echo "::error::pyodide-base-$base exists already"
+              exit 1
+            fi
+            echo "build_base=true" >> "$GITHUB_OUTPUT"
+          else
+            base="${newest#pyodide-base-}"
+            echo "build_base=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+  base:
+    needs: plan
+    if: needs.plan.outputs.build_base == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    permissions:
+      contents: write
+    env:
+      BASE: ${{ needs.plan.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # the CMake NGSolve's own Pyodide build uses (below 4)
+      - run: pip install "cmake==3.31.6"
+      - run: JOBS=4 bash tools/build_pyodide.sh base "$RUNNER_TEMP/pyodide" "${{ inputs.planex2d }}"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="$RUNNER_TEMP/pyodide/out"
+          gh release create "pyodide-base-$BASE" "$out/pyodide-base-$BASE-build.tar.gz" "$out/pyodide-base-$BASE.zip" \
+            "$out/pyodide-base-$BASE-sources.tar" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Pyodide base $BASE" \
+            --notes "netgen, NGSolve and OpenCASCADE for Pyodide, for planex2d-occ in planex2d.org's playground (not on PyPI); OpenCASCADE exports what netgen, NGSolve and planex2d ${{ inputs.planex2d }}'s OCC module import. pyodide-base-$BASE.zip: the netgen-mesher and ngsolve wheels and NOTICES.txt; -sources.tar: the complete sources and build scripts; -build.tar.gz: what the pyodide-<planex2d> releases are built on."
+
+  planex:
+    needs: [plan, base]
+    if: always() && needs.plan.result == 'success' && (needs.base.result == 'success' || needs.base.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      BASE: ${{ needs.plan.outputs.base }}
+      PLANEX: ${{ inputs.planex2d }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "cmake==3.31.6"
+      - name: The base build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          root="$RUNNER_TEMP/pyodide"
+          mkdir -p "$root/out/site" "$RUNNER_TEMP/base"
+          gh release download "pyodide-base-$BASE" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/base" \
+            --pattern "pyodide-base-$BASE-build.tar.gz" --pattern "pyodide-base-$BASE.zip"
+          tar xzf "$RUNNER_TEMP/base/pyodide-base-$BASE-build.tar.gz" -C "$root"
+          python -m zipfile -e "$RUNNER_TEMP/base/pyodide-base-$BASE.zip" "$root/out/site"
+      - run: JOBS=4 bash tools/build_pyodide.sh planex "$RUNNER_TEMP/pyodide" "$PLANEX"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "pyodide-$PLANEX" "$RUNNER_TEMP/pyodide/out/pyodide-$PLANEX.zip" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "planex2d-occ $PLANEX for Pyodide" \
+            --notes "planex2d-occ $PLANEX.1 for planex2d $PLANEX in Pyodide, on the base build pyodide-base-$BASE (not on PyPI). pyodide-$PLANEX.zip: the planex2d-occ wheel and pyodide-lock.json, which names the base wheels in ../$BASE/."
