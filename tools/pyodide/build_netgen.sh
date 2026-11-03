@@ -26,6 +26,11 @@ if [ ! -f "$PYBIND11"/.pyodide-patched ]; then
     touch "$PYBIND11"/.pyodide-patched
 fi
 
+# every CMake run below, the sub-builds NGSolve's superbuild starts included, loads Emscripten's toolchain: on a GitHub
+# runner the superbuild configured NGSolve itself without it ("CMAKE_SYSTEM_NAME was not set")
+export CMAKE_TOOLCHAIN_FILE=$ROOT/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake
+echo "cmake: $(command -v cmake) ($(cmake --version | head -1)); emcmake: $(command -v emcmake)"
+
 export CCACHE_DIR=$ROOT/ccache
 mkdir -p "$ROOT"/build/ngsolve
 cd "$ROOT"/build/ngsolve
@@ -76,5 +81,11 @@ emcmake cmake "$NGSOLVE" \
     -DBUILD_OCC=OFF \
     -DBUILD_ZLIB=ON
 emmake make -j"$JOBS" install
+for sub in netgen ngsolve; do
+    if ! grep -qs 'CMAKE_SYSTEM_NAME "Emscripten"' "$ROOT"/build/ngsolve/$sub/CMakeFiles/*/CMakeSystem.cmake; then
+        echo "the $sub sub-build was configured without Emscripten's toolchain" >&2
+        exit 1
+    fi
+done
 ls -la "$PREFIX"/python/libnglib.so "$PREFIX"/python/ngsolve/ngslib.so
 echo NETGEN-DONE
