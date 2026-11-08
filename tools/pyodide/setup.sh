@@ -1,6 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: The NGSolve team
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
-# SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-License-Identifier: LGPL-2.1-only
 
 # The toolchain and the pinned sources of the Pyodide build in one folder, without git and without root: Emscripten
 # (it brings Node), Pyodide's cross-build environment and the Pyodide runtime, OpenCASCADE, NGSolve with netgen and

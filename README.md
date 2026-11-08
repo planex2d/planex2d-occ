@@ -52,4 +52,5 @@ It attaches the wheels and a Pyodide lock file to this repository's releases `py
 
 ## License
 
-LGPL-2.1-or-later, as planex2d; see `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+LGPL-2.1-or-later, as planex2d, except the Pyodide build scripts adapted from NGSolve (LGPL-2.1-only); see `LICENSE`
+and `THIRD_PARTY_NOTICES.md`.

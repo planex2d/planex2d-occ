@@ -12,6 +12,9 @@ without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 See the GNU Lesser General Public License (the file LICENSE) for more details.
 ```
 
+The Pyodide build scripts adapted from NGSolve are the exception: they are under version 2.1 only (see the section
+"The Pyodide build" below).
+
 Its compiled modules (`planex_occ/ng_*/_planex_occ`) are built from planex2d's source distribution of the pinned
 version and contain code from the third-party libraries Eigen, Taskflow and pybind11 (header-only, compiled in). They
 are linked to the libraries Netgen and Open CASCADE Technology, which are not part of planex2d-occ and are installed
@@ -62,6 +65,11 @@ linker leaves out the rest); NGSolve's two build patches (pybind11's exception f
 OpenCASCADE's exception flag. Each release `pyodide-base-*` of this repository holds the complete sources of its files
 (`pyodide-base-*-sources.tar`), and each wheel carries the license texts of what it contains in its
 `.dist-info/licenses` folder.
+
+`tools/pyodide/build_netgen.sh`, `build_occ.sh`, `build_planex_occ.sh` and `setup.sh` are adapted from NGSolve's
+Pyodide build (`tests/gitlab-ci/pyodide/build_in_docker.sh`, `build_opencascade.sh` and `Dockerfile`,
+https://github.com/NGSolve/ngsolve), Copyright the NGSolve team, and are under the GNU Lesser General Public License
+version 2.1 only, as NGSolve is.
 
 - netgen and ngcore, https://github.com/NGSolve/netgen, and NGSolve, https://github.com/NGSolve/ngsolve: GNU Lesser
   General Public License version 2.1 (the netgen-mesher and ngsolve wheels).

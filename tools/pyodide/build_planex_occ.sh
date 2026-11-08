@@ -1,6 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: The NGSolve team
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
-# SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-License-Identifier: LGPL-2.1-only
 
 # planex's OCC module for Pyodide from planex2d's sdist (PLANEX_CORE=OFF, PLANEX_OCC=ON), against netgen and
 # libocct.so (the base build), with netgen's flags and its patched pybind11.

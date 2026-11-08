@@ -36,7 +36,7 @@ if [ "$STEP" = base ]; then
     tar czf "$OUT/pyodide-base-$BASE-build.tar.gz" --exclude='*.a' -C "$ROOT" prefix/occt prefix/netgen dist
     (cd "$OUT/site" && rm -f "$OUT/pyodide-base-$BASE.zip" && python3 -m zipfile -c "$OUT/pyodide-base-$BASE.zip" "$BASE")
     tar cf "$OUT/pyodide-base-$BASE-sources.tar" -C "$ROOT" dl
-    tar rf "$OUT/pyodide-base-$BASE-sources.tar" -C "$HERE/.." tools/build_pyodide.sh tools/pyodide
+    tar rf "$OUT/pyodide-base-$BASE-sources.tar" -C "$HERE/.." LICENSE THIRD_PARTY_NOTICES.md tools/build_pyodide.sh tools/pyodide
 elif [ "$STEP" = planex ]; then
     BASES=("$OUT"/site/"$BASE_PREFIX"-planex2d-*/)
     if [ ${#BASES[@]} -ne 1 ] || [ ! -d "${BASES[0]}" ]; then

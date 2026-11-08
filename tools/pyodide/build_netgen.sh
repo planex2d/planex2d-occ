@@ -1,6 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: The NGSolve team
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
-# SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-License-Identifier: LGPL-2.1-only
 
 # netgen and NGSolve for Pyodide against libocct.so (build_occ.sh): NGSolve's build (tests/gitlab-ci/pyodide/
 # build_in_docker.sh) with these folders, OpenCASCADE from prefix/occt, and no stub files (they would import the

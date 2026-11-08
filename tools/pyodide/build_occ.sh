@@ -1,6 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: The NGSolve team
 # SPDX-FileCopyrightText: 2026 Sebastian Hirnschall
-# SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-License-Identifier: LGPL-2.1-only
 
 # OpenCASCADE for Pyodide as ONE shared side module, libocct.so, with its symbols visible: NGSolve's build
 # (tests/gitlab-ci/pyodide/build_opencascade.sh) without -fvisibility=hidden, its static toolkits linked whole into
